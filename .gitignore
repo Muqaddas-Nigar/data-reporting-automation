@@ -1,0 +1,10 @@
+logging/*.log
+reports/*.pdf
+reports/*.xlsx
+config/config.yaml
+data/*.sqlite
+data/*.db
+.vscode
+exp.py
+__pycache__
+*.pyc
