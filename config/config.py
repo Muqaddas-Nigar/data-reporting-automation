@@ -7,11 +7,34 @@ class MissingDataInConfig(Exception):
     pass
 
 
+def normalize_nested_keys(value):
+    if isinstance(value, dict):
+        container = {key.lower(): value[key] for key in value.keys()}
+        return container
+    return value
+
+
+def normalize_keys(config):
+    container = {
+        key.lower(): normalize_nested_keys(config[key]) for key in config.keys()
+        }
+    config = container
+    print('new', config)
+    return config
+
+
 def verify_data(config):
-    keys = ['database', 'columns', 'raw_files', 'processed_files']
+    keys = [
+        'database',
+        'columns',
+        'raw_files',
+        'processed_files',
+        'sample_size',
+        'threshold'
+        ]
     missing = []
     for key in keys:
-        if not config.get(key, None):
+        if key not in config.keys():
             missing.append(key)
     if missing:
         logging.error(
@@ -49,5 +72,6 @@ def load_file(path):
 def load_config():
     path = Path(__file__).parent.resolve()/'config.yaml'
     config = load_file(path)
+    config = normalize_keys(config)
     verify_data(config)
     return config
