@@ -1,10 +1,14 @@
-logging/*.log
+logs/*.log
 reports/*.pdf
 reports/*.xlsx
 config/config.yaml
 data/*.sqlite
 data/*.db
 .vscode
-exp.py
+new.py
 __pycache__
 *.pyc
+samples/*
+*.txt
+data/processed/*.csv
+data/unprocessed/*.csv
