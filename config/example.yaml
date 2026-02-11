@@ -1,0 +1,15 @@
+database:
+  path: null
+  raw_table: null
+  clean_table: null
+columns:
+  - Transaction ID
+  - Item
+  - Quantity
+  - Price Per Unit
+  - total spent
+  - payment method
+  - location
+  - transaction_date
+raw_files: 'default'
+processed_files: 'default'
