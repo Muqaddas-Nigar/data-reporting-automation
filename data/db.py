@@ -22,7 +22,6 @@ def store_data(data, table_name, db_path):
             raise
 
 
-
 def load_table(table_name, db_path):
     with sqlite3.connect(db_path) as conn:
         try:
@@ -57,7 +56,7 @@ def create_db(config):
     logging.info(f'Creating database: {config.db_path}')
     table_name = config.raw_table
     col_names = config.columns[:]
-    col_names.append('status')
+    col_names.extend(['status', 'source', 'timestamp'])
     empty_df = pd.DataFrame(columns=col_names)
     empty_df.columns = empty_df.columns.str.lower().str.strip().str.replace(' ', '_')
     try:

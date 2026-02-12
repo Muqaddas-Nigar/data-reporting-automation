@@ -42,8 +42,14 @@ def move_processed_files(files, failed_to_process, config):
 
 def store_in_db(data, db_path, raw_table, file):
     data.columns = data.columns.str.lower().str.strip().str.replace(' ', "_")
-    col = "status"
-    data[col] = 'Pending'
+    cols = ["status", 'source', 'timestamp']
+    for col in cols:
+        if col == 'status':
+            data[col] = 'Ingested'
+        elif col == 'source':
+            data[col] = file.name
+        else:
+            data[col] = datetime.now()
     try:
         with sqlite3.connect(db_path) as db:
             logging.info(f'Storing data from "{file.name}" to "{raw_table}" ')
