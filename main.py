@@ -1,27 +1,10 @@
 import logging
 from pathlib import Path
 from config.config import load_config
-from data.db import create_db, load_table, store_data
+from data.db import db_manager
 from ingestion.ingestion import ingest_data
 from cleaning.cleaner import clean_data
-
-
-class Config:
-    def __init__(self, config):
-        self.raw_table = config['database']['raw_table']
-        self.db_path = Path(config['database']['path']) if config['database']['path'] else None
-        self.clean_table = config['database']['clean_table']
-        self.columns = config['columns']
-        if config['raw_files'] == 'default' or config['raw_files'] is None:
-            self.raw_files_loc = Path(__file__).parent/'data/unprocessed'
-        else:
-            self.raw_files_loc = config['raw_files']
-        if config['processed_files'] == 'default' or config['processed_files'] is None:
-            self.clean_files_loc = Path(__file__).parent/'data/processed'
-        else:
-            self.clean_files_loc = config['processed_files']
-        self.default_db_path = Path(__file__).parent.resolve()/'data/master.db'
-
+from config.parse_config import Config
 
 
 def set_logger():
@@ -43,7 +26,12 @@ def main():
     set_logger()
     config = load_config()
     config = Config(config)
-    config = create_db(config)
+    config.table_name = config.raw_table
+    config.column_container = config.raw_table_columns
+    config = db_manager('create_table', config, if_exists='append')
+    config.table_name = 'ingestion_log'
+    config.column_container = ['file_name', 'ingestion time']
+    config = db_manager('create_table', config, if_exists='append')
     ingest_data(config)
     #data = load_table(config['database']['raw_table'], config['database']['path'])
     #data = clean_data(data)
