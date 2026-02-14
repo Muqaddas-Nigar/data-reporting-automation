@@ -3,10 +3,6 @@ from pathlib import Path
 import logging
 
 
-class MissingDataInConfig(Exception):
-    pass
-
-
 def normalize_nested_keys(value):
     if isinstance(value, dict):
         container = {key.lower(): value[key] for key in value.keys()}
@@ -19,7 +15,6 @@ def normalize_keys(config):
         key.lower(): normalize_nested_keys(config[key]) for key in config.keys()
         }
     config = container
-    print('new', config)
     return config
 
 
@@ -40,13 +35,12 @@ def verify_data(config):
         logging.error(
             'Missing keys in config.yaml' + ', '.join(missing)
             )
-        raise MissingDataInConfig()
+        raise ValueError
     if not isinstance(config['columns'], list):
         logging.error(
             'Columns must be provided in a list'
             )
-        print(config['columns'])
-        raise TypeError()
+        raise TypeError
 
 
 def load_file(path):
@@ -57,7 +51,7 @@ def load_file(path):
             return config
     except FileNotFoundError as e:
         logging.exception(f'config.yaml file missing:{e}')
-        raise e
+        raise
     except yaml.YAMLError as e:
         if hasattr(e, 'problem_mark'):
             mark = e.problem_mark
@@ -65,8 +59,8 @@ def load_file(path):
                 f'config.yaml file syntax error on line: {mark.line + 1 }'
                 )
         else:
-            logging.exception('Yaml syntax error')
-        raise e
+            logging.exception(f'Syntax error in config.yaml:{e}')
+        raise 
 
 
 def load_config():
