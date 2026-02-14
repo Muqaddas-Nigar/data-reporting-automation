@@ -1,24 +1,20 @@
 import sqlite3
-from pathlib import Path
 import pandas as pd
 import logging
 
 
-class MissingColumns(Exception):
-    pass
-
-
-def store_data(db_path, table_name, data):
+def store_data(db_path, table_name, data, if_exists):
     with sqlite3.connect(db_path) as conn:
         try:
             data.to_sql(
                 name=table_name,
                 con=conn,
-                if_exists='append',
+                if_exists=if_exists,
                 index=False
             )
+            logging.info(f'{table_name} updated successfully.')
         except sqlite3.OperationalError as e:
-            logging.error(f'Error: {e}')
+            logging.exception(f'Error occurred: {e}')
             raise
 
 
@@ -31,67 +27,46 @@ def load_table(db_path, table_name):
             )
             return table
         except sqlite3.OperationalError as e:
-            logging.error(f'Error :{e}')
+            logging.exception(f'Error occurred :{e}')
             raise
 
 
-def create_db(db_path, table, columns):
+def create_table(db_path, table, columns, if_exists='append', data=None):
     logging.info(f'Creating database: {db_path}')
-    table_name = table
-    col_names = columns[:]
-    empty_df = pd.DataFrame(columns=col_names)
-    empty_df.columns = empty_df.columns.str.lower().str.strip().str.replace(' ', '_')
+    if data is None:
+        data = pd.DataFrame(columns=columns)
+    data.columns = data.columns.str.lower().str.strip().str.replace(' ', '_')
     try:
         with sqlite3.connect(db_path) as db:
-            logging.info(f'Creating table: "{table_name}"')
-            empty_df.to_sql(
-                name=table_name,
+            logging.info(f'Creating table: "{table}"')
+            data.to_sql(
+                name=table,
                 con=db,
-                if_exists='append',
+                if_exists=if_exists,
                 index=False
                 )
     except sqlite3.OperationalError as e:
-        logging.exception(f'Error occured {e}')
+        logging.exception(f'Error occurred {e}')
         raise
     except ValueError as e:
-        logging.exception(f'Erorr occured {e}')
+        logging.exception(f'Error occurred {e}')
         raise
     return None
 
 
-def parse_config_data(config):
-    if config.db_path is None:
-        config.db_path = config.default_db_path
-    if config.raw_table is None:
-        config.raw_table = 'unprocessed'
-    if config.clean_table is None:
-        config.clean_table = 'processed'
-    if config.columns is None:
-        logging.error(
-            'Missing column names in config.yaml'
-            )
-        raise MissingColumns()
-    return config
-
-
-def db_manager(command, config, data=None, query=None):
-    try:
-        config = parse_config_data(config)
+def db_manager(command, config, if_exists='append', data=None, query=None):
         db_path = config.db_path
-        columns = config.columns[:]
+        columns = config.column_container[:]
         table_name = config.table_name
-        if command == "create_db":
-            print(db_path, table_name, columns, config.table_name)
-            create_db(db_path, table_name, columns)
-            return config
         if command == "create_table":
-            #create_table(db_path, table, columns, data=None)
-            pass
-        if command == "load_data":
+            create_table(db_path, table_name, columns, if_exists, data)
+            return config
+        elif command == "load_data":
             table = load_table(db_path, table_name)
             return table
-        if command == "store_data":
-            store_data(db_path, table_name, data)
-    except Exception as e:
-        logging.exception(f'Error occured: {e}')
-        raise
+        elif command == "store_data":
+            store_data(db_path, table_name, data, if_exists)
+        else:
+            logging.error('Unrecognized command for db_manager')
+            raise ValueError
+
