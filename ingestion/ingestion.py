@@ -6,32 +6,19 @@ import sqlite3
 import shutil
 from datetime import datetime
 import sys
-
-
-class MissingRawDataFolder(Exception):
-    pass
+from data.db import db_manager
+import hashlib
 
 
 class ColumnMismatchError(Exception):
     pass
 
 
-def move_processed_files(files, failed_to_process, config):
-    processed_folder = Path(config.clean_files_loc)
-    if not Path(processed_folder).exists():
-        user_provided_path = processed_folder
-        processed_folder = Path(__file__).parent.parent.resolve()/'data/processed'
-        logging.warning(
-            f"{user_provided_path} doesn't exists"
-            )
-        logging.info(
-            f'Moving processed files to: {processed_folder}'
-            )
-        processed_folder.mkdir(parents=True, exist_ok=True)
-    files_to_move = [file for file in files if file not in failed_to_process]
-    print(processed_folder)
-    for file in files_to_move:
-        new_name = f"{file.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{file.suffix}"
+def move_processed_files(files, config):
+    processed_folder = config.clean_files_loc
+    time_stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    for file in files:
+        new_name = f"{file.stem}_{time_stamp}{file.suffix}"
         dest = processed_folder/new_name
         try:
             shutil.move(str(file), str(dest))
@@ -40,7 +27,25 @@ def move_processed_files(files, failed_to_process, config):
             logging.error(f'{file} cannot be moved: {e}')
 
 
-def store_in_db(data, db_path, raw_table, file):
+def update_ingestion_log(files, file_hash_dict, config):
+    logging.info('Updating ingestion log.')
+    ingestion_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    new_record = pd.DataFrame([
+        {
+            'file_name': file.name,
+            'file_fingerprint': file_hash_dict[file.name],
+            'ingestion_time': ingestion_time
+        }
+        for file in files
+    ]
+    )
+    config.table_name = config.ingestion_table_name
+    old_record = db_manager('load_data', config)
+    updated_record = pd.concat([old_record, new_record], ignore_index=True)
+    db_manager('store_data', config, if_exists='replace', data=updated_record)
+
+
+def store_in_raw_table(data, config, file):
     data.columns = data.columns.str.lower().str.strip().str.replace(' ', "_")
     cols = ["status", 'source', 'timestamp']
     for col in cols:
@@ -50,46 +55,32 @@ def store_in_db(data, db_path, raw_table, file):
             data[col] = file.name
         else:
             data[col] = datetime.now()
-    try:
-        with sqlite3.connect(db_path) as db:
-            logging.info(f'Storing data from "{file.name}" to "{raw_table}" ')
-            data.to_sql(
-                name=raw_table,
-                con=db,
-                if_exists='append',
-                index=False
-            )
-    except sqlite3.OperationalError as e:
-        logging.warning(f'Unable to store {file} to database: {e}')
-        raise
+    config.table_name = config.raw_table
+    db_manager('store_data', config, if_exists='append', data=data)
 
 
-def validate_data(data, db_path, table_name, cols):
+def validate_data(data, config, file):
+    logging.info(f'validating data from {file.name}')
     data.columns = data.columns.str.lower().str.strip().str.replace(' ', "_")
+    cols = config.data_columns
     for col in cols:
         if not col.lower().strip().replace(' ', '_') in data.columns.tolist():
             raise ColumnMismatchError
-    try:
-        with sqlite3.connect(db_path) as db:
-            data.to_sql(
-                name=table_name,
-                con=db,
-                if_exists='replace',
-                index=False
-            )
-    except sqlite3.OperationalError:
-        raise
+    config.table_name = 'validation_table'
+    db_manager('store_data', config, if_exists='replace', data=data)
+
 
 
 def process_raw_files(files, config):
     failed = []
+    passed = []
     logging.info('Processing files.')
     for file in tqdm(files, desc="Processing raw files"):
-        table_name = 'validate'
         try:
             data = pd.read_csv(file)
-            validate_data(data, config.db_path, table_name, config.columns)
+            validate_data(data, config, file)
         except sqlite3.OperationalError:
+            logging.warning(f'Database error while processing: {file.name} ')
             failed.append(file)
             continue
         except ColumnMismatchError:
@@ -103,17 +94,42 @@ def process_raw_files(files, config):
             logging.warning(f'File is Empty: {file.name}')
             failed.append(file)
         else:
-            store_in_db(data, config.db_path, config.raw_table, file)
+            store_in_raw_table(data, config, file)
+            passed.append(file)
     logging.info(f'Total processed: {len(files)}')
-    skipped = 0
-    for file in failed:
-        skipped += 1
+    skipped = len(failed)
     if skipped:
         logging.warning(f'Failed to process: {skipped}')
         logging.warning(
             'Unable to store files:\n' + '\n'.join(str(f.name) for f in failed)
             )
-    return failed
+    return passed
+
+
+def check_in_ingestion_log(file_hash_dict, files, config):
+    config.table_name = config.ingestion_table_name
+    ingestion_log = db_manager('load_data', config)
+    data_files = []
+    if ingestion_log.empty:
+        return files
+    for file in files:
+        if file_hash_dict[file.name] in ingestion_log.file_fingerprint.tolist():
+            logging.warning(f'Duplicate file detected:{file.name}')
+            continue
+        data_files.append(file)
+    return data_files
+
+
+def compute_files_hash(files):
+    logging.info('Computing files hash.')
+    file_hash = {}
+    for file in files:
+        with open(file, 'rb') as f:
+            h = hashlib.sha256()
+            while chunk := f.read(8192):
+                h.update(chunk)
+            file_hash[file.name] = h.hexdigest()
+    return file_hash
 
 
 def read_unprocessed_files(raw_files_folder):
@@ -125,16 +141,11 @@ def read_unprocessed_files(raw_files_folder):
     return files
 
 
-def get_data_folder(config):
-    data_folder = Path(config.raw_files_loc)
-    if not data_folder.resolve().exists():
-        logging.error(f'Raw data folder missing: {data_folder}')
-        raise MissingRawDataFolder()
-    return data_folder
-
-
 def ingest_data(config):
-    raw_files_folder = get_data_folder(config)
-    files = read_unprocessed_files(raw_files_folder)
-    failed_to_process = process_raw_files(files, config)
-    move_processed_files(files, failed_to_process, config)
+    files = read_unprocessed_files(config.raw_files_loc)
+    file_hash_dict = compute_files_hash(files)
+    files = check_in_ingestion_log(file_hash_dict, files, config)
+    files = process_raw_files(files, config)
+    if files:
+        update_ingestion_log(files, file_hash_dict, config)
+        move_processed_files(files, config)
