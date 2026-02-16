@@ -66,7 +66,7 @@ def db_manager(command, config, if_exists='append', data=None, query=None):
             create_table(db_path, table_name, columns, if_exists, data)
             return config
         elif command == "load_data":
-            table = load_table(db_path, table_name)
+            table = load_table(db_path, table_name, query=query)
             return table
         elif command == "store_data":
             store_data(db_path, table_name, data, if_exists)
