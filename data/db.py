@@ -18,11 +18,15 @@ def store_data(db_path, table_name, data, if_exists):
             raise
 
 
-def load_table(db_path, table_name):
+def load_table(db_path, table_name, query=None):
     with sqlite3.connect(db_path) as conn:
         try:
+            if not query:
+                statement = f'SELECT * FROM {table_name}'
+            else:
+                statement = query
             table = pd.read_sql(
-                f"SELECT * FROM {table_name}",
+                statement,
                 conn
             )
             return table
